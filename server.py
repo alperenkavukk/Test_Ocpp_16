@@ -1,3 +1,4 @@
+from aiohttp import web
 import asyncio
 import websockets
 from datetime import datetime
@@ -7,8 +8,14 @@ from ocpp.v16 import call_result
 from ocpp.v16.enums import Action, RegistrationStatus
 
 
+# HTTP Sağlık Kontrolü için
+async def health_check(request):
+    return web.Response(text="OK")
+
+
+# OCPP ChargePoint sınıfı
 class ChargePoint(CP):
-    @on(Action.BootNotification)
+    @on(Action.boot_notification)
     async def on_boot_notification(self, charge_point_vendor, charge_point_model, **kwargs):
         print(f"Şarj istasyonu bağlandı: {charge_point_vendor} - {charge_point_model}")
         return call_result.BootNotificationPayload(
@@ -17,43 +24,43 @@ class ChargePoint(CP):
             status=RegistrationStatus.accepted
         )
 
-    @on(Action.Heartbeat)
-    async def on_heartbeat(self):
-        print("Heartbeat alındı")
-        return call_result.HeartbeatPayload(
-            current_time=datetime.utcnow().isoformat()
-        )
-
-    @on(Action.StatusNotification)
-    async def on_status_notification(self, connector_id, error_code, status, **kwargs):
-        print(f"Durum güncellemesi: Connector {connector_id}, Durum: {status}, Hata: {error_code}")
-        return call_result.StatusNotificationPayload()
+    # Diğer metodlar...
 
 
+# WebSocket bağlantı handler'ı
 async def on_connect(websocket, path):
-    """Her yeni bağlantı için bir ChargePoint instance'ı oluştur"""
     try:
         charge_point_id = path.strip('/')
         cp = ChargePoint(charge_point_id, websocket)
-
         print(f"Yeni bağlantı: {charge_point_id}")
         await cp.start()
-
     except Exception as e:
         print(f"Bağlantı hatası: {e}")
 
 
 async def main():
-    # WebSocket sunucusunu başlat
-    server = await websockets.serve(
+    # HTTP sunucu oluştur
+    app = web.Application()
+    app.router.add_get('/health', health_check)
+
+    # HTTP sunucuyu başlat
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', 8080)
+    await site.start()
+
+    # WebSocket sunucuyu başlat
+    ws_server = await websockets.serve(
         on_connect,
         '0.0.0.0',
         9000,
         subprotocols=['ocpp1.6']
     )
 
+    print("HTTP Sağlık Kontrolü: http://0.0.0.0:8080/health")
     print("OCPP 1.6 Sunucusu çalışıyor... ws://0.0.0.0:9000")
-    await server.wait_closed()
+
+    await asyncio.Future()  # Sonsuz döngü
 
 
 if __name__ == '__main__':
