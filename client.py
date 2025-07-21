@@ -17,21 +17,16 @@ class ChargePoint(CP):
     async def send_boot_notification(self):
         request = call.BootNotificationPayload(
             charge_point_model="Python_OCPP_Client",
-            charge_point_vendor="Python_Vendor",
-            firmware_version="1.0.0"
+            charge_point_vendor="Python_Vendor"
         )
-        try:
-            response = await self.call(request)
-            logger.info(f"BootNotification yanıtı: status={response.status}, interval={response.interval}")
-            return response
-        except Exception as e:
-            logger.error(f"BootNotification hatası: {str(e)}")
-            raise
+        response = await self.call(request)
+        logger.info(f"Sunucu yanıtı: {response.status}, interval: {response.interval}")
 
 
 async def main():
-    # Render URL'si
-    uri = "wss://test-ocpp-16.onrender.com/CP_1"
+    # Render URL'sini buraya girin
+    render_url = "test-ocpp-16.onrender.com"  # SİZİN_URL'inizle değiştirin
+    uri = f"wss://{render_url}/CP_1"
 
     # SSL ayarları (Render'ın otomatik sertifikaları için)
     ssl_context = ssl.create_default_context()
@@ -43,16 +38,9 @@ async def main():
                 uri,
                 subprotocols=["ocpp1.6"],
                 ssl=ssl_context,
-                extra_headers={
-                    "Origin": "https://test-ocpp-16.onrender.com",
-                    "Sec-WebSocket-Protocol": "ocpp1.6"
-                },
-                ping_interval=20,
-                ping_timeout=20
+                extra_headers={"Origin": f"https://{render_url}"}
         ) as ws:
             logger.info(f"Sunucuya bağlandı: {uri}")
-            logger.info(f"Protokol: {ws.subprotocol}")
-
             cp = ChargePoint("CP_1", ws)
             await cp.send_boot_notification()
 
@@ -60,13 +48,8 @@ async def main():
             while True:
                 await asyncio.sleep(10)
 
-    except websockets.exceptions.InvalidHandshake as e:
-        logger.error(f"Bağlantı hatası (InvalidHandshake): {str(e)}")
-        logger.error("Muhtemelen OCPP protokolü anlaşması başarısız oldu")
-    except websockets.exceptions.InvalidURI as e:
-        logger.error(f"Geçersiz URI: {str(e)}")
     except Exception as e:
-        logger.error(f"Beklenmeyen hata: {str(e)}")
+        logger.error(f"Bağlantı hatası: {str(e)}")
 
 
 if __name__ == "__main__":
