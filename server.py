@@ -11,7 +11,7 @@ logging.basicConfig(level=logging.INFO)
 class ChargePoint(CP):
     @on("BootNotification")
     async def on_boot_notification(self, charge_point_model, charge_point_vendor, **kwargs):
-        logging.info("BootNotification alındı.")
+        logging.info(f"BootNotification alındı: {charge_point_model} - {charge_point_vendor}")
         return call_result.BootNotificationPayload(
             current_time="2025-07-21T12:00:00Z",
             interval=10,
@@ -19,23 +19,21 @@ class ChargePoint(CP):
         )
 
 
-async def on_connect(websocket, path):  # ✅ BU ŞEKİLDE OLMALI
-    logging.info("Yeni bağlantı alındı.")
-    cp_id = path.strip("/") or "unknown"  # ws://localhost:9000/CP_1 gibi bağlantı varsa CP_1 alınır
-    cp = ChargePoint(cp_id, websocket)
-
+async def on_connect(websocket, path):
+    logging.info(f"Yeni bağlantı alındı: {path}")
+    charge_point_id = path.strip("/") or "unknown"
+    cp = ChargePoint(charge_point_id, websocket)
     await cp.start()
 
 
 async def main():
     server = await websockets.serve(
         on_connect,
-        "0.0.0.0",
-        9000,
+        host="0.0.0.0",
+        port=9000,
         subprotocols=["ocpp1.6"]
     )
-
-    logging.info("OCPP 1.6 Sunucusu çalışıyor... ws://0.0.0.0:9000")
+    logging.info("✅ OCPP 1.6 Sunucusu çalışıyor... ws://0.0.0.0:9000")
     await server.wait_closed()
 
 

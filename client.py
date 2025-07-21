@@ -11,11 +11,11 @@ class ChargePoint(CP):
             charge_point_vendor="PythonVendor"
         )
         response = await self.call(request)
-        print(f"Sunucudan cevap: {response.status}, interval: {response.interval}")
+        print(f"✅ Sunucudan cevap: {response.status}, interval: {response.interval}")
 
 
 async def main():
-    uri = "ws://test-ocpp-16.onrender.com/CP_1"  # 🔁 kendi adresinle değiştir
+    uri = "wss://test-ocpp-16.onrender.com/CP_1"  # 🔁 Eğer localhost ise: ws://localhost:9000/CP_1
 
     async with websockets.connect(
         uri,
