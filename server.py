@@ -9,15 +9,15 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import threading
 import logging
 
-# Configure logging
+# Log ayarları
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
-logger = logging.getLogger('OCPP-Server')
+logger = logging.getLogger('OCPP-Sunucu')
 
 
-# HTTP Health Check Server
+# HTTP Sağlık Kontrol Sunucusu (8080 portunda)
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == '/health':
@@ -37,74 +37,82 @@ class HealthHandler(BaseHTTPRequestHandler):
             self.end_headers()
 
 
-def run_http_server():
+def http_sunucu_baslat():
     server = HTTPServer(('0.0.0.0', 8080), HealthHandler)
-    logger.info("HTTP Health Check running on port 8080")
+    logger.info("HTTP Sağlık Kontrolü 8080 portunda çalışıyor")
     server.serve_forever()
 
 
-# OCPP ChargePoint class
-class ChargePoint(CP):
+# OCPP Şarj İstasyonu Sınıfı
+class SarjIstasyonu(CP):
     @on(Action.BootNotification)
-    async def on_boot_notification(self, charge_point_vendor, charge_point_model, **kwargs):
-        logger.info(f"Charge station connected: {charge_point_vendor} - {charge_point_model}")
+    async def boot_bildirimi(self, uretici, model, **kwargs):
+        logger.info(f"Şarj istasyonu bağlandı: {uretici} - {model}")
         return call_result.BootNotificationPayload(
             current_time=datetime.utcnow().isoformat(),
             interval=10,
             status=RegistrationStatus.accepted
         )
 
+    @on(Action.Heartbeat)
+    async def kalp_atisi(self):
+        return call_result.HeartbeatPayload(
+            current_time=datetime.utcnow().isoformat()
+        )
 
-# Custom WebSocket request processor
-async def process_request(path, headers):
-    """Handle health checks before WebSocket upgrade"""
-    if path == '/health' and headers.get('Method') == 'HEAD':
-        logger.debug("Received HEAD health check")
+
+# WebSocket İstek İşleyici
+async def istek_isleyici(path, istek_basliklari):
+    """WebSocket öncesi sağlık kontrollerini yönetir"""
+    if path == '/health' and istek_basliklari.get('Method') == 'HEAD':
+        logger.debug("HEAD sağlık kontrolü alındı - HTTP 200 dönülüyor")
         return (200, [], b"OK")
     return None
 
 
-# WebSocket connection handler
-async def on_connect(websocket, path):
+# WebSocket Bağlantı Yöneticisi
+async def baglanti_kabul(websocket, path):
     try:
-        charge_point_id = path.strip('/')
-        if not charge_point_id:
-            logger.error("Invalid charge point ID")
+        istasyon_id = path.strip('/')
+        if not istasyon_id:
+            logger.error("Geçersiz şarj istasyonu ID'si")
             await websocket.close()
             return
 
-        cp = ChargePoint(charge_point_id, websocket)
-        logger.info(f"New connection: {charge_point_id}")
-        await cp.start()
+        istasyon = SarjIstasyonu(istasyon_id, websocket)
+        logger.info(f"Yeni OCPP bağlantısı: {istasyon_id}")
+        await istasyon.start()
     except websockets.exceptions.ConnectionClosed:
-        logger.info(f"Connection closed: {charge_point_id}")
+        logger.info(f"Bağlantı kapatıldı: {istasyon_id}")
     except Exception as e:
-        logger.error(f"Connection error: {e}")
+        logger.error(f"Bağlantı hatası: {e}")
 
 
-async def main():
-    # Start WebSocket server with custom request processor
+async def ana():
+    # WebSocket sunucusunu başlat
     ws_server = await websockets.serve(
-        on_connect,
+        baglanti_kabul,
         '0.0.0.0',
         9000,
         subprotocols=['ocpp1.6'],
-        process_request=process_request
+        process_request=istek_isleyici,
+        ping_interval=None,
+        ping_timeout=None
     )
-    logger.info("OCPP 1.6 Server running on ws://0.0.0.0:9000")
-    await asyncio.Future()  # Run forever
+    logger.info("OCPP 1.6 Sunucusu ws://0.0.0.0:9000 adresinde çalışıyor")
+    await asyncio.Future()  # Sonsuza kadar çalış
 
 
 if __name__ == '__main__':
-    # Start HTTP server in a separate thread
-    http_thread = threading.Thread(target=run_http_server)
+    # HTTP sunucusunu ayrı bir thread'de başlat (Render sağlık kontrolleri için)
+    http_thread = threading.Thread(target=http_sunucu_baslat)
     http_thread.daemon = True
     http_thread.start()
 
-    # Start WebSocket server
+    # WebSocket sunucusunu başlat (OCPP bağlantıları için)
     try:
-        asyncio.run(main())
+        asyncio.run(ana())
     except KeyboardInterrupt:
-        logger.info("Server stopped by user")
+        logger.info("Sunucu kullanıcı tarafından durduruldu")
     except Exception as e:
-        logger.error(f"Server crashed: {e}")
+        logger.error(f"Sunucu çöktü: {e}")
