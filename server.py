@@ -3,11 +3,12 @@ import logging
 import datetime
 import os
 import websockets
+
 from ocpp.routing import on
 from ocpp.v16 import ChargePoint as CP
 from ocpp.v16 import call_result
 
-# Log ayarları
+# 🔧 Log ayarları
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
@@ -36,6 +37,13 @@ class ChargePoint(CP):
             status="Accepted"
         )
 
+    @on("Heartbeat")
+    async def on_heartbeat(self):
+        logger.info(f"💓 Heartbeat alındı - Cihaz: {self.id}")
+        return call_result.HeartbeatPayload(
+            current_time=datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        )
+
 
 async def on_connect(websocket, path):
     try:
@@ -49,8 +57,8 @@ async def on_connect(websocket, path):
 
 
 async def main():
-    # Render platformunun atadığı PORT değişkenini al
-    port = int(os.environ.get("PORT", 8080))  # Default 8080, Render bunu override eder
+    # Render platformunun atadığı PORT değişkeni
+    port = int(os.environ.get("PORT", 8080))
     host = "0.0.0.0"
 
     server = await websockets.serve(
