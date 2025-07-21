@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import datetime
-import ssl
 import os
 import websockets
 from ocpp.routing import on
@@ -18,9 +17,7 @@ logger = logging.getLogger('OCPP_Server')
 
 class ChargePoint(CP):
     async def start(self):
-        # Bağlantı başladığında log kaydı
         logger.info(f"🔌 Yeni cihaz bağlandı - ID: {self.id}")
-
         try:
             await super().start()
         except websockets.exceptions.ConnectionClosed:
@@ -31,7 +28,8 @@ class ChargePoint(CP):
     @on("BootNotification")
     async def on_boot_notification(self, charge_point_model, charge_point_vendor, **kwargs):
         logger.info(
-            f"🔄 BootNotification alındı - Cihaz: {self.id}, Model: {charge_point_model}, Vendor: {charge_point_vendor}")
+            f"🔄 BootNotification alındı - Cihaz: {self.id}, Model: {charge_point_model}, Vendor: {charge_point_vendor}"
+        )
         return call_result.BootNotificationPayload(
             current_time=datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
             interval=30,
@@ -51,24 +49,20 @@ async def on_connect(websocket, path):
 
 
 async def main():
-    # Render'ın atadığı portu al (PORT environment variable)
-    port = int(os.environ.get("PORT", 9000))
-    host = os.environ.get("HOST", "0.0.0.0")
-
-    # SSL context (Render'da otomatik yönetiliyor)
-    ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    # Render platformunun atadığı PORT değişkenini al
+    port = int(os.environ.get("PORT", 8080))  # Default 8080, Render bunu override eder
+    host = "0.0.0.0"
 
     server = await websockets.serve(
         on_connect,
         host=host,
         port=port,
         subprotocols=["ocpp1.6"],
-        ssl=ssl_context,
         ping_interval=None
     )
 
-    logger.info(f"✅ OCPP 1.6 Sunucusu çalışıyor... {host}:{port}")
-    logger.info(f"🔗 WebSocket URL: wss://[YOUR_RENDER_URL].onrender.com")
+    logger.info(f"✅ OCPP 1.6 Sunucusu çalışıyor: ws://{host}:{port}")
+    logger.info(f"🔗 WebSocket URL (prod): wss://[your-render-app].onrender.com")
 
     await server.wait_closed()
 
