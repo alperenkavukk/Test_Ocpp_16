@@ -6,6 +6,7 @@ from ocpp.v16 import ChargePoint as CP
 from ocpp.v16 import call_result
 from ocpp.v16.enums import Action, RegistrationStatus
 
+
 class ChargePoint(CP):
     @on(Action.BootNotification)
     async def on_boot_notification(self, charge_point_vendor, charge_point_model, **kwargs):
@@ -28,7 +29,13 @@ class ChargePoint(CP):
         print(f"Durum güncellemesi: Connector {connector_id}, Durum: {status}, Hata: {error_code}")
         return call_result.StatusNotificationPayload()
 
+
 async def on_connect(websocket, path):
+    # WebSocket bağlantısı kontrolü (GET isteği olmalı)
+    if websocket.request_headers.get('Upgrade', '').lower() != 'websocket':
+        await websocket.close(code=1002)  # Protokol hatası
+        return
+
     try:
         charge_point_id = path.strip('/')
         cp = ChargePoint(charge_point_id, websocket)
@@ -37,15 +44,24 @@ async def on_connect(websocket, path):
     except Exception as e:
         print(f"Bağlantı hatası: {e}")
 
+
+async def health_check(path, request_headers):
+    # HEAD isteklerini 405 Method Not Allowed ile reddet
+    if request_headers.get('Method', '').upper() == 'HEAD':
+        return 405, {}, b'Method Not Allowed\n'
+
+
 async def main():
     server = await websockets.serve(
         on_connect,
         '0.0.0.0',
         9000,
-        subprotocols=['ocpp1.6']
+        subprotocols=['ocpp1.6'],
+        process_request=health_check  # HEAD isteklerini işlemek için eklendi
     )
     print("OCPP 1.6 Sunucusu çalışıyor... ws://0.0.0.0:9000")
     await server.wait_closed()
+
 
 if __name__ == '__main__':
     asyncio.run(main())
