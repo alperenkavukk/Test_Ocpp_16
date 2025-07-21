@@ -1,9 +1,12 @@
 services:
   - type: web
     name: ocpp-server
-    runtime: python
+    env: python
     buildCommand: pip install -r requirements.txt
     startCommand: python server.py
-    env: python
-    webSockets: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10
+      - key: PORT
+        value: 9000
     healthCheckPath: /health
