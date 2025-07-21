@@ -7,7 +7,7 @@ from ocpp.v16 import call_result
 from ocpp.v16.enums import Action, RegistrationStatus
 
 class ChargePoint(CP):
-    @on(Action.boot_notification)
+    @on(Action.BootNotification)
     async def on_boot_notification(self, charge_point_vendor, charge_point_model, **kwargs):
         print(f"Şarj istasyonu bağlandı: {charge_point_vendor} - {charge_point_model}")
         return call_result.BootNotificationPayload(
@@ -16,14 +16,14 @@ class ChargePoint(CP):
             status=RegistrationStatus.accepted
         )
 
-    @on(Action.heartbeat)
+    @on(Action.Heartbeat)
     async def on_heartbeat(self):
         print("Heartbeat alındı")
         return call_result.HeartbeatPayload(
             current_time=datetime.utcnow().isoformat()
         )
 
-    @on(Action.status_notification)
+    @on(Action.StatusNotification)
     async def on_status_notification(self, connector_id, error_code, status, **kwargs):
         print(f"Durum güncellemesi: Connector {connector_id}, Durum: {status}, Hata: {error_code}")
         return call_result.StatusNotificationPayload()
