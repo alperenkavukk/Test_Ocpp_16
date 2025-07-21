@@ -1,5 +1,5 @@
 
 ocpp==0.14.0
-websockets>=10.0
+websockets==10.4
 #requirements.txt
 aiohttp>=3.9.0

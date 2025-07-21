@@ -4,7 +4,4 @@
     <option name="sdkName" value="Python 3.13 (Test_Ocpp_16)" />
   </component>
   <component name="KubernetesApiPersistence">{}</component>
-  <component name="KubernetesApiProvider"><![CDATA[{
-  "isMigrated": true
-}]]></component>
 </project>

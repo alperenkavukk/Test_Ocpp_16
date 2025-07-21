@@ -2,33 +2,30 @@ import asyncio
 import websockets
 from ocpp.v16 import ChargePoint as CP
 from ocpp.v16 import call
+from datetime import datetime
 
 
-async def test_charge_point():
+class ChargePoint(CP):
+    async def send_boot_notification(self):
+        request = call.BootNotificationPayload(
+            charge_point_model="PythonModel",
+            charge_point_vendor="PythonVendor"
+        )
+        response = await self.call(request)
+
+        print(f"Sunucudan cevap: {response.status}, interval: {response.interval}")
+
+
+async def main():
+    uri = "ws://localhost:9000/CP_1"
+
     async with websockets.connect(
-            'ws://localhost:9000/CP001',
-            subprotocols=['ocpp1.6']
+        uri,
+        subprotocols=["ocpp1.6"]
     ) as ws:
-        cp = CP('CP001', ws)
-
-        # BootNotification gönder
-        boot_response = await cp.call(call.BootNotificationPayload(
-            charge_point_vendor="VendorX",
-            charge_point_model="ModelY"
-        ))
-        print("BootNotification Yanıtı:", boot_response)
-
-        # Heartbeat gönder
-        heartbeat_response = await cp.call(call.HeartbeatPayload())
-        print("Heartbeat Yanıtı:", heartbeat_response)
-
-        # StatusNotification gönder
-        status_response = await cp.call(call.StatusNotificationPayload(
-            connector_id=1,
-            error_code="NoError",
-            status="Available"
-        ))
-        print("StatusNotification Yanıtı:", status_response)
+        cp = ChargePoint("CP_1", ws)
+        await cp.send_boot_notification()
 
 
-asyncio.run(test_charge_point())
+if __name__ == "__main__":
+    asyncio.run(main())
