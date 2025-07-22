@@ -21,8 +21,8 @@ class ChargePoint(CP):
         logger.info(f"🔌 Yeni cihaz bağlandı - ID: {self.id}")
         try:
             await super().start()
-        except websockets.exceptions.ConnectionClosed:
-            logger.info(f"❌ Cihaz bağlantısı kesildi - ID: {self.id}")
+        except websockets.exceptions.ConnectionClosedError as e:
+            logger.warning(f"❌ Bağlantı koptu - ID: {self.id}, Sebep: {str(e)}")
         except Exception as e:
             logger.error(f"⚠️ Cihaz hatası - ID: {self.id}: {str(e)}")
 
@@ -46,18 +46,14 @@ class ChargePoint(CP):
 
 
 async def on_connect(websocket, path):
-    try:
-        charge_point_id = path.strip('/') or f"CP_{id(websocket)}"
-        logger.info(f"🌐 Yeni bağlantı isteği - Path: {path}, Atanan ID: {charge_point_id}")
+    charge_point_id = path.strip("/") or f"CP_{id(websocket)}"
+    logger.info(f"🌐 Yeni bağlantı isteği - Path: {path}, Atanan ID: {charge_point_id}")
 
-        cp = ChargePoint(charge_point_id, websocket)
-        await cp.start()
-    except Exception as e:
-        logger.error(f"⛔ Bağlantı hatası: {str(e)}")
+    cp = ChargePoint(charge_point_id, websocket)
+    await cp.start()
 
 
 async def main():
-    # Render platformunun atadığı PORT değişkeni
     port = int(os.environ.get("PORT", 8080))
     host = "0.0.0.0"
 
@@ -66,11 +62,13 @@ async def main():
         host=host,
         port=port,
         subprotocols=["ocpp1.6"],
-        ping_interval=None
+        ping_interval=20,
+        ping_timeout=30
     )
 
+    public_url = os.environ.get("RENDER_EXTERNAL_URL", "[render-url-bulunamadı]")
     logger.info(f"✅ OCPP 1.6 Sunucusu çalışıyor: ws://{host}:{port}")
-    logger.info(f"🔗 WebSocket URL (prod): wss://[your-render-app].onrender.com")
+    logger.info(f"🔗 WebSocket URL (prod): wss://{public_url}")
 
     await server.wait_closed()
 
