@@ -159,11 +159,11 @@ async def create_db_pool():
     """Veritabanı bağlantı havuzu oluşturur"""
     try:
         pool = await asyncpg.create_pool(
-            user=os.getenv('DB_USER', 'postgres'),
-            password=os.getenv('DB_PASSWORD', 'postgres'),
-            database=os.getenv('DB_NAME', 'ocpp'),
-            host=os.getenv('DB_HOST', 'localhost'),
-            port=os.getenv('DB_PORT', '5432'),
+            user=os.getenv('DB_USER'),  # Render'ın otomatik oluşturduğu DB_USER
+            password=os.getenv('DB_PASSWORD'),  # DB_PASSWORD
+            database=os.getenv('DB_NAME'),  # DB_NAME
+            host=os.getenv('DB_HOST'),  # DB_HOST
+            port=os.getenv('DB_PORT', '5432'), # DB_PORT
             min_size=1,
             max_size=10
         )
