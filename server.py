@@ -8,14 +8,11 @@ from ocpp.routing import on
 from ocpp.v16 import ChargePoint as CP
 from ocpp.v16 import call_result
 
+# 📋 Log formatı
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger("OCPP_Server")
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger('OCPP_Server')
-
-db_pool = None  # Global havuz
+db_pool = None  # Global veritabanı havuzu
 
 class ChargePoint(CP):
     def __init__(self, id, connection):
@@ -72,11 +69,10 @@ class ChargePoint(CP):
             tx_id = 1234
             if self.db_pool:
                 async with self.db_pool.acquire() as conn:
-                    tx_id = await conn.fetchval(
-                        """INSERT INTO transactions (id_tag, connector_id, start_value, start_time)
-                           VALUES($1, $2, $3, $4) RETURNING id""",
-                        id_tag, connector_id, meter_start, timestamp
-                    )
+                    tx_id = await conn.fetchval("""
+                        INSERT INTO transactions (id_tag, connector_id, start_value, start_time)
+                        VALUES($1, $2, $3, $4) RETURNING id
+                    """, id_tag, connector_id, meter_start, timestamp)
                     logger.info(f"💾 Transaction başlatıldı - TX ID: {tx_id}")
             return call_result.StartTransactionPayload(transaction_id=tx_id, id_tag_info={"status": "Accepted"})
         except Exception as e:
@@ -89,16 +85,34 @@ class ChargePoint(CP):
         try:
             if self.db_pool:
                 async with self.db_pool.acquire() as conn:
-                    await conn.execute(
-                        """UPDATE transactions SET stop_value = $1, stop_time = $2,
-                           total_energy = $1 - start_value WHERE id = $3""",
-                        meter_stop, timestamp, transaction_id
-                    )
+                    await conn.execute("""
+                        UPDATE transactions SET stop_value = $1, stop_time = $2,
+                        total_energy = $1 - start_value WHERE id = $3
+                    """, meter_stop, timestamp, transaction_id)
                     logger.info(f"💾 Transaction durduruldu - TX ID: {transaction_id}")
             return call_result.StopTransactionPayload(id_tag_info={"status": "Accepted"})
         except Exception as e:
             logger.error(f"⚠️ StopTransaction hatası - ID: {self.id}: {str(e)}")
             return call_result.StopTransactionPayload(id_tag_info={"status": "Invalid"})
+
+    @on("StatusNotification")
+    async def on_status_notification(self, connector_id, error_code, status, **kwargs):
+        timestamp = kwargs.get("timestamp")
+        vendor_id = kwargs.get("vendorId")
+        logger.info(f"📥 StatusNotification - ID: {self.id}, Connector: {connector_id}, Status: {status}, Error: {error_code}")
+
+        try:
+            if self.db_pool:
+                async with self.db_pool.acquire() as conn:
+                    await conn.execute("""
+                        INSERT INTO status_notifications (cp_id, connector_id, status, error_code, timestamp, vendor_id)
+                        VALUES ($1, $2, $3, $4, $5, $6)
+                    """, self.id, connector_id, status, error_code, timestamp, vendor_id)
+            return call_result.StatusNotificationPayload()
+        except Exception as e:
+            logger.error(f"⚠️ StatusNotification hatası - ID: {self.id}: {str(e)}")
+            return call_result.StatusNotificationPayload()
+
 
 async def on_connect(websocket, path):
     charge_point_id = path.strip("/") or f"CP_{id(websocket)}"
@@ -111,12 +125,13 @@ async def on_connect(websocket, path):
 async def create_db_pool():
     try:
         pool = await asyncpg.create_pool(
-            user=os.getenv('DB_USER'),
-            password=os.getenv('DB_PASS'),
-            database=os.getenv('DB_NAME'),
-            host=os.getenv('DB_HOST'),
-            port=os.getenv('DB_PORT'),
-            min_size=1, max_size=10
+            user=os.getenv("DB_USER"),
+            password=os.getenv("DB_PASS"),
+            database=os.getenv("DB_NAME"),
+            host=os.getenv("DB_HOST"),
+            port=os.getenv("DB_PORT"),
+            min_size=1,
+            max_size=10
         )
         logger.info("✅ Veritabanı bağlantı havuzu oluşturuldu")
         return pool
@@ -127,6 +142,7 @@ async def create_db_pool():
 async def main():
     global db_pool
     db_pool = await create_db_pool()
+
     if db_pool:
         try:
             async with db_pool.acquire() as conn:
@@ -148,10 +164,20 @@ async def main():
                         total_energy INTEGER,
                         created_at TIMESTAMP DEFAULT NOW()
                     );
+                    CREATE TABLE IF NOT EXISTS status_notifications (
+                        id SERIAL PRIMARY KEY,
+                        cp_id TEXT NOT NULL,
+                        connector_id INTEGER,
+                        status TEXT,
+                        error_code TEXT,
+                        vendor_id TEXT,
+                        timestamp TIMESTAMP,
+                        created_at TIMESTAMP DEFAULT NOW()
+                    );
                 """)
-                logger.info("✅ Veritabanı tabloları kontrol edildi")
+                logger.info("✅ Veritabanı tabloları hazır")
         except Exception as e:
-            logger.error(f"⚠️ Veritabanı tablo oluşturma hatası: {str(e)}")
+            logger.error(f"⚠️ Tablo oluşturma hatası: {str(e)}")
 
     server = await websockets.serve(
         on_connect,
@@ -161,7 +187,7 @@ async def main():
         ping_interval=20,
         ping_timeout=30
     )
-    logger.info("✅ OCPP 1.6 Sunucusu çalışıyor")
+    logger.info("✅ OCPP 1.6 Sunucusu dinlemede...")
     await server.wait_closed()
 
 if __name__ == "__main__":
