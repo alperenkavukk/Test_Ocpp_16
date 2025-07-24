@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import datetime
+from datetime import datetime  # timestamp parse için
 import os
 import websockets
 import asyncpg
@@ -13,6 +14,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger("OCPP_Server")
 
 db_pool = None  # Global veritabanı havuzu
+
 
 class ChargePoint(CP):
     def __init__(self, id, connection):
@@ -33,46 +35,80 @@ class ChargePoint(CP):
 
     @on("BootNotification")
     async def on_boot_notification(self, charge_point_model, charge_point_vendor, **kwargs):
+        current_time = datetime.utcnow()
         logger.info(f"🔄 BootNotification - ID: {self.id}, Model: {charge_point_model}, Vendor: {charge_point_vendor}")
+
+        # Veritabanına kayıt
+        if self.db_pool:
+            try:
+                async with self.db_pool.acquire() as conn:
+                    await conn.execute("""
+                                       INSERT INTO boot_notifications (cp_id, model, vendor, timestamp)
+                                       VALUES ($1, $2, $3, $4)
+                                       """, self.id, charge_point_model, charge_point_vendor, current_time)
+            except Exception as e:
+                logger.error(f"⚠️ BootNotification DB kaydı hatası - ID: {self.id}: {str(e)}")
+
         return call_result.BootNotificationPayload(
-            current_time=datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+            current_time=current_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
             interval=30,
             status="Accepted"
         )
 
     @on("Heartbeat")
     async def on_heartbeat(self):
+        current_time = datetime.utcnow()
         logger.info(f"💓 Heartbeat - ID: {self.id}")
+
+        # Veritabanına kayıt
+        if self.db_pool:
+            try:
+                async with self.db_pool.acquire() as conn:
+                    await conn.execute("""
+                                       INSERT INTO heartbeats (cp_id, timestamp)
+                                       VALUES ($1, $2)
+                                       """, self.id, current_time)
+            except Exception as e:
+                logger.error(f"⚠️ Heartbeat DB kaydı hatası - ID: {self.id}: {str(e)}")
+
         return call_result.HeartbeatPayload(
-            current_time=datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+            current_time=current_time.strftime("%Y-%m-%dT%H:%M:%SZ")
         )
 
     @on("Authorize")
     async def on_authorize(self, id_tag):
         logger.info(f"🪪 Authorize - ID: {self.id}, Tag: {id_tag}")
+        status = "Invalid"
         try:
             if self.db_pool:
                 async with self.db_pool.acquire() as conn:
                     user = await conn.fetchrow("SELECT * FROM users WHERE id_tag = $1", id_tag)
                     status = "Accepted" if user else "Invalid"
+                    # Veritabanına kayıt
+                    await conn.execute("""
+                                       INSERT INTO authorizations (cp_id, id_tag, status, timestamp)
+                                       VALUES ($1, $2, $3, NOW())
+                                       """, self.id, id_tag, status)
             else:
                 status = "Accepted"
-            return call_result.AuthorizePayload(id_tag_info={"status": status})
         except Exception as e:
             logger.error(f"⚠️ Authorize hatası - ID: {self.id}: {str(e)}")
-            return call_result.AuthorizePayload(id_tag_info={"status": "Invalid"})
+            status = "Invalid"
+
+        return call_result.AuthorizePayload(id_tag_info={"status": status})
 
     @on("StartTransaction")
     async def on_start_transaction(self, connector_id, id_tag, meter_start, timestamp, **kwargs):
-        logger.info(f"⚡ StartTransaction - ID: {self.id}, Connector: {connector_id}, Tag: {id_tag}, MeterStart: {meter_start}")
+        logger.info(
+            f"⚡ StartTransaction - ID: {self.id}, Connector: {connector_id}, Tag: {id_tag}, MeterStart: {meter_start}")
         try:
             tx_id = 1234
             if self.db_pool:
                 async with self.db_pool.acquire() as conn:
                     tx_id = await conn.fetchval("""
-                        INSERT INTO transactions (id_tag, connector_id, start_value, start_time)
-                        VALUES($1, $2, $3, $4) RETURNING id
-                    """, id_tag, connector_id, meter_start, timestamp)
+                                                INSERT INTO transactions (id_tag, connector_id, start_value, start_time)
+                                                VALUES ($1, $2, $3, $4) RETURNING id
+                                                """, id_tag, connector_id, meter_start, timestamp)
                     logger.info(f"💾 Transaction başlatıldı - TX ID: {tx_id}")
             return call_result.StartTransactionPayload(transaction_id=tx_id, id_tag_info={"status": "Accepted"})
         except Exception as e:
@@ -86,9 +122,12 @@ class ChargePoint(CP):
             if self.db_pool:
                 async with self.db_pool.acquire() as conn:
                     await conn.execute("""
-                        UPDATE transactions SET stop_value = $1, stop_time = $2,
-                        total_energy = $1 - start_value WHERE id = $3
-                    """, meter_stop, timestamp, transaction_id)
+                                       UPDATE transactions
+                                       SET stop_value   = $1,
+                                           stop_time    = $2,
+                                           total_energy = $1 - start_value
+                                       WHERE id = $3
+                                       """, meter_stop, timestamp, transaction_id)
                     logger.info(f"💾 Transaction durduruldu - TX ID: {transaction_id}")
             return call_result.StopTransactionPayload(id_tag_info={"status": "Accepted"})
         except Exception as e:
@@ -97,17 +136,25 @@ class ChargePoint(CP):
 
     @on("StatusNotification")
     async def on_status_notification(self, connector_id, error_code, status, **kwargs):
-        timestamp = kwargs.get("timestamp")
+        timestamp_str = kwargs.get("timestamp")
         vendor_id = kwargs.get("vendorId")
-        logger.info(f"📥 StatusNotification - ID: {self.id}, Connector: {connector_id}, Status: {status}, Error: {error_code}")
+        logger.info(
+            f"📥 StatusNotification - ID: {self.id}, Connector: {connector_id}, Status: {status}, Error: {error_code}")
+
+        timestamp = None
+        if timestamp_str:
+            try:
+                timestamp = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+            except Exception as e:
+                logger.warning(f"⚠️ Timestamp parse hatası: {timestamp_str} - {e}")
 
         try:
             if self.db_pool:
                 async with self.db_pool.acquire() as conn:
                     await conn.execute("""
-                        INSERT INTO status_notifications (cp_id, connector_id, status, error_code, timestamp, vendor_id)
-                        VALUES ($1, $2, $3, $4, $5, $6)
-                    """, self.id, connector_id, status, error_code, timestamp, vendor_id)
+                                       INSERT INTO status_notifications (cp_id, connector_id, status, error_code, timestamp, vendor_id)
+                                       VALUES ($1, $2, $3, $4, $5, $6)
+                                       """, self.id, connector_id, status, error_code, timestamp, vendor_id)
             return call_result.StatusNotificationPayload()
         except Exception as e:
             logger.error(f"⚠️ StatusNotification hatası - ID: {self.id}: {str(e)}")
@@ -121,6 +168,7 @@ async def on_connect(websocket, path):
     if 'db_pool' in globals():
         await cp.set_db_pool(db_pool)
     await cp.start()
+
 
 async def create_db_pool():
     try:
@@ -139,6 +187,7 @@ async def create_db_pool():
         logger.error(f"❌ Veritabanı bağlantı hatası: {str(e)}")
         return None
 
+
 async def main():
     global db_pool
     db_pool = await create_db_pool()
@@ -153,6 +202,7 @@ async def main():
                         name VARCHAR(100),
                         created_at TIMESTAMP DEFAULT NOW()
                     );
+
                     CREATE TABLE IF NOT EXISTS transactions (
                         id SERIAL PRIMARY KEY,
                         id_tag VARCHAR(50) NOT NULL,
@@ -164,6 +214,7 @@ async def main():
                         total_energy INTEGER,
                         created_at TIMESTAMP DEFAULT NOW()
                     );
+
                     CREATE TABLE IF NOT EXISTS status_notifications (
                         id SERIAL PRIMARY KEY,
                         cp_id TEXT NOT NULL,
@@ -174,7 +225,32 @@ async def main():
                         timestamp TIMESTAMP,
                         created_at TIMESTAMP DEFAULT NOW()
                     );
-                """)
+
+                    CREATE TABLE IF NOT EXISTS boot_notifications (
+                        id SERIAL PRIMARY KEY,
+                        cp_id TEXT NOT NULL,
+                        model TEXT,
+                        vendor TEXT,
+                        timestamp TIMESTAMP,
+                        created_at TIMESTAMP DEFAULT NOW()
+                    );
+
+                    CREATE TABLE IF NOT EXISTS heartbeats (
+                        id SERIAL PRIMARY KEY,
+                        cp_id TEXT NOT NULL,
+                        timestamp TIMESTAMP,
+                        created_at TIMESTAMP DEFAULT NOW()
+                    );
+
+                    CREATE TABLE IF NOT EXISTS authorizations (
+                        id SERIAL PRIMARY KEY,
+                        cp_id TEXT NOT NULL,
+                        id_tag VARCHAR(50),
+                        status TEXT,
+                        timestamp TIMESTAMP,
+                        created_at TIMESTAMP DEFAULT NOW()
+                    );  
+                    """)
                 logger.info("✅ Veritabanı tabloları hazır")
         except Exception as e:
             logger.error(f"⚠️ Tablo oluşturma hatası: {str(e)}")
@@ -189,6 +265,7 @@ async def main():
     )
     logger.info("✅ OCPP 1.6 Sunucusu dinlemede...")
     await server.wait_closed()
+
 
 if __name__ == "__main__":
     asyncio.run(main())
