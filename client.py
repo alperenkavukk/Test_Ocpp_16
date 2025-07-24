@@ -1,123 +1,80 @@
 import asyncio
-import datetime
 import logging
 import ssl
 import websockets
 from ocpp.v16 import ChargePoint as CP
 from ocpp.v16 import call
 
-# Log ayarları
+# Gelişmiş Loglama
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('ocpp_client.log'),
+        logging.StreamHandler()
+    ]
 )
 logger = logging.getLogger('OCPP_Client')
 
 
 class ChargePoint(CP):
-    async def send_boot_notification(self):
-        """Sunucuya boot bildirimi gönderir"""
+    def __init__(self, id, connection):
+        super().__init__(id, connection)
+        self.connection_status = "disconnected"
+        self.failover_urls = [
+            "wss://primary-ocpp-server.example.com",
+            "wss://standby-ocpp-server.example.com"
+        ]
+
+    async def connect_with_failover(self):
+        """Yüksek erişilebilirlik için bağlantı yönetimi"""
+        for url in self.failover_urls:
+            try:
+                ssl_context = ssl.create_default_context()
+                ssl_context.check_hostname = False
+                ssl_context.verify_mode = ssl.CERT_NONE
+
+                connection = await websockets.connect(
+                    f"{url}/CP_{self.id}",
+                    subprotocols=["ocpp1.6"],
+                    ssl=ssl_context
+                )
+                self.connection_status = "connected"
+                logger.info(f"✅ Başarıyla bağlandı: {url}")
+                return connection
+            except Exception as e:
+                logger.warning(f"⚠️ Bağlantı hatası ({url}): {str(e)}")
+                continue
+
+        raise ConnectionError("Tüm sunuculara bağlanılamadı")
+
+    async def start(self):
+        """HA destekli istemci başlatma"""
         try:
-            request = call.BootNotificationPayload(
-                charge_point_model="Python_OCPP_Client",
-                charge_point_vendor="Python_Vendor"
-            )
-            response = await self.call(request)
-            logger.info(f"Sunucu yanıtı: {response.status}, interval: {response.interval}")
-            return response
-        except Exception as e:
-            logger.error(f"BootNotification gönderim hatası: {str(e)}")
-            return None
+            ws = await self.connect_with_failover()
+            self._connection = ws
 
-    async def send_heartbeat(self):
-        """Düzenli heartbeat gönderir"""
-        try:
-            request = call.HeartbeatPayload()
-            response = await self.call(request)
-            logger.info(f"Heartbeat yanıtı: {response.current_time}")
-            return response
-        except Exception as e:
-            logger.error(f"Heartbeat gönderim hatası: {str(e)}")
-            return None
+            # Boot bildirimi gönder
+            response = await self.send_boot_notification()
+            if not response or response.status != "Accepted":
+                raise Exception("BootNotification reddedildi")
 
-    async def simulate_charging(self):
-        """Şarj işlemi simülasyonu"""
-        try:
-            # 1. Yetkilendirme
-            auth = await self.call(call.AuthorizePayload(id_tag="TEST_TAG_123"))
-            if auth.id_tag_info["status"] != "Accepted":
-                raise Exception("Yetkilendirme reddedildi")
-
-            # 2. Transaction başlat
-            start_tx = await self.call(call.StartTransactionPayload(
-                connector_id=1,
-                id_tag="TEST_TAG_123",
-                meter_start=0,
-                timestamp=datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-            ))
-
-            logger.info(f"Transaction başladı. ID: {start_tx.transaction_id}")
-
-            # 3. Şarj simülasyonu (5 adet meter value gönder)
-            for i in range(1, 6):
-                await asyncio.sleep(5)
-                await self.call(call.MeterValuesPayload(
-                    connector_id=1,
-                    meter_value=[{
-                        "timestamp": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
-                        "sampledValue": [{
-                            "value": str(i * 1000),
-                            "measurand": "Energy.Active.Import.Register",
-                            "unit": "Wh"
-                        }]
-                    }]
-                ))
-                logger.info(f"Meter value gönderildi: {i * 1000} Wh")
-
-            # 4. Transaction durdur
-            await self.call(call.StopTransactionPayload(
-                transaction_id=start_tx.transaction_id,
-                meter_stop=5000,
-                timestamp=datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-            ))
-            logger.info("Transaction başarıyla durduruldu")
+            # Heartbeat döngüsü başlat
+            asyncio.create_task(self.heartbeat_loop())
 
         except Exception as e:
-            logger.error(f"Şarj simülasyonu hatası: {str(e)}")
+            logger.error(f"❌ İstemci başlatma hatası: {str(e)}")
+            self.connection_status = "failed"
 
 
 async def main():
-    # Render URL'sini buraya girin
-    render_url = "test-ocpp-16.onrender.com"  # SİZİN_URL'inizle değiştirin
-    uri = f"wss://{render_url}/CP_1"
+    """HA destekli istemci"""
+    cp = ChargePoint("CP_1", None)
+    await cp.start()
 
-    # SSL ayarları (Production'da sertifika doğrulama aktif olmalı)
-    ssl_context = ssl.create_default_context()
-    ssl_context.check_hostname = False
-    ssl_context.verify_mode = ssl.CERT_NONE  # Development için, production'da değiştirin
-
-    try:
-        async with websockets.connect(
-                uri,
-                subprotocols=["ocpp1.6"],
-                ssl=ssl_context,
-                extra_headers={"Origin": f"https://{render_url}"}
-        ) as ws:
-            logger.info(f"Sunucuya bağlandı: {uri}")
-            cp = ChargePoint("CP_1", ws)
-
-            # Boot bildirimi gönder
-            if not await cp.send_boot_notification():
-                raise Exception("BootNotification başarısız")
-
-            # Heartbeat döngüsü
-            asyncio.create_task(cp.start_heartbeat(interval=30))
-
-            # Şarj simülasyonu başlat
-            await cp.simulate_charging()
-
-    except Exception as e:
-        logger.error(f"Bağlantı hatası: {str(e)}")
+    # İstemciyi çalışır durumda tut
+    while cp.connection_status == "connected":
+        await asyncio.sleep(5)
 
 
 if __name__ == "__main__":
