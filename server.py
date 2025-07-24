@@ -135,11 +135,11 @@ class ChargePoint(CP):
             return call_result.StopTransactionPayload(id_tag_info={"status": "Invalid"})
 
     @on("StatusNotification")
-    async def on_status_notification(self, connector_id, error_code, status, **kwargs):
+    async def on_status_notification(self, connectorId, errorCode, status, **kwargs):
         timestamp_str = kwargs.get("timestamp")
         vendor_id = kwargs.get("vendorId")
         logger.info(
-            f"📥 StatusNotification - ID: {self.id}, Connector: {connector_id}, Status: {status}, Error: {error_code}")
+            f"📥 StatusNotification - ID: {self.id}, Connector: {connectorId}, Status: {status}, Error: {errorCode}")
 
         timestamp = None
         if timestamp_str:
@@ -152,9 +152,9 @@ class ChargePoint(CP):
             if self.db_pool:
                 async with self.db_pool.acquire() as conn:
                     await conn.execute("""
-                                       INSERT INTO status_notifications (cp_id, connector_id, status, error_code, timestamp, vendor_id)
-                                       VALUES ($1, $2, $3, $4, $5, $6)
-                                       """, self.id, connector_id, status, error_code, timestamp, vendor_id)
+                        INSERT INTO status_notifications (cp_id, connector_id, status, error_code, timestamp, vendor_id)
+                        VALUES ($1, $2, $3, $4, $5, $6)   """,
+                        self.id, connectorId, status, errorCode, timestamp, vendor_id)
             return call_result.StatusNotificationPayload()
         except Exception as e:
             logger.error(f"⚠️ StatusNotification hatası - ID: {self.id}: {str(e)}")
