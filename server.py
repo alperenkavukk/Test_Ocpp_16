@@ -8,6 +8,7 @@ from ocpp.routing import on
 from ocpp.v16 import ChargePoint as CP
 from ocpp.v16 import call_result
 
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
@@ -111,10 +112,10 @@ async def create_db_pool():
     try:
         pool = await asyncpg.create_pool(
             user=os.getenv('DB_USER'),
-            password=os.getenv('DB_PASSWORD', 'postgres'),
-            database=os.getenv('DB_NAME', 'ocpp'),
-            host=os.getenv('DB_HOST', 'localhost'),
-            port=os.getenv('DB_PORT', '5432'),
+            password=os.getenv('DB_PASS'),
+            database=os.getenv('DB_NAME'),
+            host=os.getenv('DB_HOST'),
+            port=os.getenv('DB_PORT'),
             min_size=1, max_size=10
         )
         logger.info("✅ Veritabanı bağlantı havuzu oluşturuldu")
