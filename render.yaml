@@ -1,66 +1,10 @@
 services:
   - type: web
     name: ocpp-server
-    runtime: python
-    python:
-      version: "3.9"
-    buildCommand: |
-      pip install -r requirements.txt
-    startCommand: |
-      python -m ocpp_server.server
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python server.py
     envVars:
-      - key: PORT
-        value: 8080
-      - key: DB_HOST
-        fromDatabase:
-          name: ocpp-db
-          property: host
-      - key: DB_PORT
-        value: 5432
-      - key: DB_NAME
-        fromDatabase:
-          name: ocpp-db
-          property: database
-      - key: DB_USER
-        fromDatabase:
-          name: ocpp-db
-          property: user
-      - key: DB_PASS
-        fromDatabase:
-          name: ocpp-db
-          property: password
-
-  - type: web
-    name: ocpp-api
-    runtime: python
-    python:
-      version: "3.9"
-    buildCommand: |
-      pip install -r requirements.txt
-    startCommand: |
-      python -m api.app
-    envVars:
-      - key: PORT
-        value: 10000
-      - key: DB_HOST
-        fromDatabase:
-          name: ocpp-db
-          property: host
-      - key: DB_NAME
-        fromDatabase:
-          name: ocpp-db
-          property: database
-      - key: DB_USER
-        fromDatabase:
-          name: ocpp-db
-          property: user
-      - key: DB_PASS
-        fromDatabase:
-          name: ocpp-db
-          property: password
-
-databases:
-  - name: ocpp-db
-    plan: free
-    databaseName: ocpp
-    user: ocpp_user
+      - key: PYTHON_VERSION
+        value: 3.10
+    healthCheckPath: /health

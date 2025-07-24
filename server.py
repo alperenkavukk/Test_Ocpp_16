@@ -25,14 +25,13 @@ class ChargePoint(CP):
         self.db_pool = pool
 
     async def start(self):
-        port = int(os.environ.get("PORT", 8080))
-        server = await websockets.serve(
-            self.on_connect,
-            "0.0.0.0",
-            port,
-            subprotocols=['ocpp1.6']
-        )
-        logger.info(f"OCPP server started on ws://0.0.0.0:{port}")
+        logger.info(f"🔌 Yeni cihaz bağlandı - ID: {self.id}")
+        try:
+            await super().start()
+        except websockets.exceptions.ConnectionClosedError as e:
+            logger.warning(f"❌ Bağlantı koptu - ID: {self.id}, Sebep: {str(e)}")
+        except Exception as e:
+            logger.error(f"⚠️ Cihaz hatası - ID: {self.id}: {str(e)}")
 
     @on("BootNotification")
     async def on_boot_notification(self, charge_point_model, charge_point_vendor, **kwargs):
