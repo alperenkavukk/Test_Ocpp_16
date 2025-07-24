@@ -1,0 +1,71 @@
+openapi: 3.0.0
+info:
+  title: OCPP Management API
+  version: 1.0.0
+  description: API for managing OCPP 1.6 charge points
+servers:
+  - url: http://localhost:5000/api
+    description: Development server
+tags:
+  - name: ChargePoints
+    description: Charge point operations
+  - name: Transactions
+    description: Transaction operations
+paths:
+  /charge_points:
+    get:
+      tags: [ChargePoints]
+      summary: List all charge points
+      responses:
+        '200':
+          description: A list of charge points
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ChargePoint'
+  /charge_points/{charge_point_id}:
+    get:
+      tags: [ChargePoints]
+      summary: Get a charge point
+      parameters:
+        - name: charge_point_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Charge point details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChargePoint'
+  /charge_points/{charge_point_id}/restart:
+    post:
+      tags: [ChargePoints]
+      summary: Restart a charge point
+      parameters:
+        - name: charge_point_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '202':
+          description: Restart command accepted
+components:
+  schemas:
+    ChargePoint:
+      type: object
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+        last_heartbeat:
+          type: string
+          format: date-time
+        config:
+          type: object
